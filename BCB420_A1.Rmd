@@ -1,0 +1,58 @@
+---
+title: "Assignment1 - Data set selection and initial Processing"
+output: html_notebook
+---
+
+# Setting up GEOmetadb
+
+```{r}
+if (!requireNamespace("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+
+if (!requireNamespace("GEOmetadb", quietly = TRUE))
+  BiocManager::install("GEOmetadb")
+
+library(dplyr)
+```
+
+# Find dataset
+```{r}
+if(!file.exists('GEOmetadb.sqlite')) GEOmetadb::getSQLiteFile()
+
+con <- RSQLite::dbConnect(RSQLite::SQLite(),'GEOmetadb.sqlite')
+
+sql <- paste("SELECT DISTINCT gse.title,gse.gse, gpl.title,","
+             gse.submission_date","FROM","  gse JOIN gse_gpl ON
+             gse_gpl.gse=gse.gse","  JOIN gpl ON
+             gse_gpl.gpl=gpl.gpl","WHERE"," 
+             gse.submission_date > '2015-01-01' AND","
+             gse.title LIKE '%obese%' AND ","
+             gpl.organism LIKE '%Homo sapiens%' AND","
+             gpl.technology LIKE '%high-throughput seq%' ",
+             sep=" ")
+
+rs <- RSQLite::dbGetQuery(con,sql)
+
+if (!file.exists("data.rds")){
+  sfiles = GEOquery::getGEOSuppFiles('GSE145412')
+  saveRDS(sfiles, file = "data.rds")
+} else {
+  sfiles = readRDS(file = "data.rds")
+}
+
+fnames = rownames(sfiles)
+
+# there is only one supplemental file
+b2 = read.delim(fnames[1],header=TRUE)
+```
+
+# Data exploration
+```{r, results=FALSE}
+gse <- GEOquery::getGEO("GSE145412",GSEMatrix=FALSE)
+knitr::kable(data.frame(head(GEOquery::Meta(gse))), format = "html")
+```
+
+# Clean up dataset
+```{r}
+
+```
