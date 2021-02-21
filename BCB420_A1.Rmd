@@ -10,6 +10,8 @@ output:
 
 ## Setting up GEOmetadb
 
+The first thing is to install install necessary package and library them
+
 ```{r, message=FALSE, results='hide'}
 #install Biocmanager in order to install necessary package
 if (!requireNamespace("BiocManager", quietly = TRUE))
@@ -36,6 +38,9 @@ library(RSQLite)
 ```
 
 ## Find and download dataset
+
+Download dataset using GEOmetadb and GEOquery
+
 ```{r}
 if(!file.exists('GEOmetadb.sqlite')) getSQLiteFile()
 
@@ -70,12 +75,15 @@ dbDisconnect(con)
 
 ## Assess data
 
+Get the description for the dataset
+
 ```{r, results=FALSE, message=FALSE}
 #First, we want to get the description for dataset GSE145412. 
 gse <- getGEO("GSE145412",GSEMatrix=FALSE)
 kable(data.frame(head(Meta(gse))), format = "html")
 ```
 
+Get the platform information for the dataset
 
 ```{r, results=FALSE, warning=FALSE}
 #Then, we want to get information about the dataset
@@ -93,7 +101,9 @@ current_gpl_info <- Meta(getGEO(current_gpl))
 ## Clean up dataset
 
 ### grouping
-The original dataset does not indicate grouping, so I need to split all 4 groups manually
+
+The original dataset does not indicate grouping, so I need to split all 4 groups manually. HO refers to health obese group, HL refers to health lean group, DO refers to disease obese group, and DL refers to disease lean group.
+
 ```{r}
 dim(mets_data)
 colnames(mets_data)
@@ -121,7 +131,9 @@ samples
 ```
 
 ### remove low counts
+
 now I need to remove all genes that have low counts
+
 ```{r}
 #filter out genes that have low counts
 #translate out counts into counts per million using the edgeR package
@@ -139,6 +151,7 @@ removed
 ## Map to HUGO gene symbols and check duplicate
 
 Because this dataset already provided HGNC gene symbols, so there is no need to convert the Ensebl Gene ids to HGNC symbols again. If the dataset does not contain HGNC column, then we will use biomart package to map the Ensembl gene ids to HGNC gene symbols. Now we need to see how many gene ids were not match to a gene name
+
 ```{r}
 total <- sum(is.na(mets_data_filtered$External_gene_name))
 percent <- total/length(mets_data_filtered$External_gene_name)
@@ -146,12 +159,15 @@ percent
 ```
 
 ### check for geneid duplicate 
+
 There are 3% of gene names are missing which is a small portion, it is not necessary to remove them right now. Now we want to check if multiple gene ids appears.
+
 ```{r}
 #check if same gene id appear multiple times
 length(unique(mets_data_filtered$geneID))
 length(mets_data_filtered$geneID)
 ```
+
 Both of the result are 16224, this means there is no rows that map to more than one symbol.
 
 ### check for gene name duplicate
@@ -163,6 +179,7 @@ n_occur[n_occur$Freq > 1,]
 ```
 
 There are 82 duplicate in the dataset, Now I want to see the duplicate
+
 ```{r}
 mets_data_filtered[mets_data_filtered$External_gene_name %in%
                      n_occur$Var1[n_occur$Freq > 1],]
@@ -186,26 +203,33 @@ mets_data_filtered <- temp_data
 ## Normalization
 
 ### TMM method for normalizing dataset
+
 I choose to use TMM method because it will normalize data according to samples.Also, this method does not require modification prior in order to do normalization.
 
 First, we need to create an edgeR container
+
 ```{r}
 filtered_data_matrix <- as.matrix(mets_data_filtered[,2:33])
 rownames(filtered_data_matrix) <- mets_data_filtered$Group.1
 d = DGEList(counts=filtered_data_matrix, group=samples$group)
 ```
+
 Now we can perform the normalization
+
 ```{r}
 d = calcNormFactors(d)
 ```
 
 get the normalized data
+
 ```{r}
 norm_counts <- edgeR::cpm(d)
 ```
 
 ## pre vs post nomalized data
+
 First,we want to see the distribution of the dataset, boxplot can give the median and shows the outliers
+
 ```{r, warning = FALSE}
 data2plot <- log2(cpm(mets_data_filtered[,2:33]))
 boxplot(data2plot, xlab = "Samples", ylab = "log2 CPM",
@@ -264,7 +288,7 @@ for (i in 1:length(norm_counts_density))
 
 ```
 
-Since we need a dataframe as the final result, we need to make sure the dataframe is in correct formate.
+Since we need a dataframe as the final result, we need to make sure the dataframe is in correct format.
 
 ```{r, warning=FALSE}
 final_data <- temp_data[,2:33]
