@@ -1,25 +1,45 @@
 ---
 title: "Assignment1 - Data set selection and initial Processing"
-output: html_notebook
+output:
+  html_document:
+    toc: yes
+    df_print: paged
+  html_notebook:
+    toc: yes
 ---
 
-# Setting up GEOmetadb
+## Setting up GEOmetadb
 
-```{r}
+```{r, message=FALSE, results='hide'}
+#install Biocmanager in order to install necessary package
 if (!requireNamespace("BiocManager", quietly = TRUE))
   install.packages("BiocManager")
 
+#install necessary package if not installed
 if (!requireNamespace("GEOmetadb", quietly = TRUE))
   BiocManager::install("GEOmetadb")
 
+if (! requireNamespace("GEOquery", quietly = TRUE)) {
+  BiocManager::install("GEOquery")
+}
+
+if (! requireNamespace("edgeR", quietly = TRUE)) {
+  BiocManager::install("edgeR")
+}
+
 library(dplyr)
+library(GEOmetadb)
+library(GEOquery)
+library(edgeR)
+library(knitr)
+library(RSQLite)
 ```
 
-# Find dataset
+## Find and download dataset
 ```{r}
-if(!file.exists('GEOmetadb.sqlite')) GEOmetadb::getSQLiteFile()
+if(!file.exists('GEOmetadb.sqlite')) getSQLiteFile()
 
-con <- RSQLite::dbConnect(RSQLite::SQLite(),'GEOmetadb.sqlite')
+con <- dbConnect(SQLite(),'GEOmetadb.sqlite')
 
 sql <- paste("SELECT DISTINCT gse.title,gse.gse, gpl.title,","
              gse.submission_date","FROM","  gse JOIN gse_gpl ON
@@ -31,10 +51,10 @@ sql <- paste("SELECT DISTINCT gse.title,gse.gse, gpl.title,","
              gpl.technology LIKE '%high-throughput seq%' ",
              sep=" ")
 
-rs <- RSQLite::dbGetQuery(con,sql)
+rs <- dbGetQuery(con,sql)
 
 if (!file.exists("data.rds")){
-  sfiles = GEOquery::getGEOSuppFiles('GSE145412')
+  sfiles = getGEOSuppFiles('GSE145412')
   saveRDS(sfiles, file = "data.rds")
 } else {
   sfiles = readRDS(file = "data.rds")
@@ -43,16 +63,260 @@ if (!file.exists("data.rds")){
 fnames = rownames(sfiles)
 
 # there is only one supplemental file
-b2 = read.delim(fnames[1],header=TRUE)
+mets_data = read.delim(fnames[1],header=TRUE, check.names = FALSE)
+
+dbDisconnect(con)
 ```
 
-# Data exploration
-```{r, results=FALSE}
-gse <- GEOquery::getGEO("GSE145412",GSEMatrix=FALSE)
-knitr::kable(data.frame(head(GEOquery::Meta(gse))), format = "html")
+## Assess data
+
+```{r, results=FALSE, message=FALSE}
+#First, we want to get the description for dataset GSE145412. 
+gse <- getGEO("GSE145412",GSEMatrix=FALSE)
+kable(data.frame(head(Meta(gse))), format = "html")
 ```
 
-# Clean up dataset
+
+```{r, results=FALSE, warning=FALSE}
+#Then, we want to get information about the dataset
+current_gpl <- names(GPLList(gse))[1]
+current_gpl_info <- Meta(getGEO(current_gpl))
+```
+
+**Platform Title:** `r current_gpl_info$title`\
+**Original submission date:** `r current_gpl_info$submission_date`\
+**Last update date:** `r current_gpl_info$last_update_date`\
+**Organism:** `r current_gpl_info$organism`\
+**No. of GEO datasets that use this technology:** `r length(current_gpl_info$series_id)`\
+**No. of GEO samples that use this technology:** `r length(current_gpl_info$sample_id)`
+
+## Clean up dataset
+
+### grouping
+The original dataset does not indicate grouping, so I need to split all 4 groups manually
 ```{r}
+dim(mets_data)
+colnames(mets_data)
+
+#now define groups
+samples <- data.frame("group" = c("HO", "HL", "DL", "DO", "DO", "DL", "HO", 
+                                  "HL", "HL", "DO", "HL", "HL", "DL", "DL", 
+                                  "DO", "DO", "DL", "HO", "HO", "HO", "HL", 
+                                  "HO", "DL", "DO", "HL", "HO", "HL", "HO", 
+                                  "DO", "DL", "DL", "DO"),
+                      "patients" = c("sample_1", "sample_4", "sample_5",
+                                     "sample_6", "sample_7", "sample_8",
+                                     "sample_9", "sample_10", "sample_11",
+                                     "sample_13", "sample_15", "sample_17",
+                                     "sample_18", "sample_19", "sample_21",
+                                     "sample_22", "sample_24", "sample_25",
+                                     "sample_28", "sample_29", "sample_32",
+                                     "sample_33", "sample_34", "sample_35",
+                                     "sample_36", "sample_39", "sample_42",
+                                     "sample_43", "sample_44", "sample_46",
+                                     "sample_47", "sample_48"))
+#Add corresponding rownames to each cell
+rownames(samples) <- colnames(mets_data)[6:37]
+samples
+```
+
+### remove low counts
+now I need to remove all genes that have low counts
+```{r}
+#filter out genes that have low counts
+#translate out counts into counts per million using the edgeR package
+cpms = cpm(mets_data[6:37])
+rownames(cpms) <- mets_data[,1]
+# get rid of low counts, since each group has 8 sample, so n = 8
+keep = rowSums(cpms >1) >=8
+mets_data_filtered = mets_data[keep,]
+#check dim after filtering
+dim(mets_data_filtered)
+removed <- dim(mets_data) - dim(mets_data_filtered)
+removed
+```
+
+## Map to HUGO gene symbols and check duplicate
+
+Because this dataset already provided HGNC gene symbols, so there is no need to convert the Ensebl Gene ids to HGNC symbols again. If the dataset does not contain HGNC column, then we will use biomart package to map the Ensembl gene ids to HGNC gene symbols. Now we need to see how many gene ids were not match to a gene name
+```{r}
+total <- sum(is.na(mets_data_filtered$External_gene_name))
+percent <- total/length(mets_data_filtered$External_gene_name)
+percent
+```
+
+### check for geneid duplicate 
+There are 3% of gene names are missing which is a small portion, it is not necessary to remove them right now. Now we want to check if multiple gene ids appears.
+```{r}
+#check if same gene id appear multiple times
+length(unique(mets_data_filtered$geneID))
+length(mets_data_filtered$geneID)
+```
+Both of the result are 16224, this means there is no rows that map to more than one symbol.
+
+### check for gene name duplicate
+```{r}
+#check if same HUGO gene symbol appear multiple times
+n_occur <- data.frame(table(mets_data_filtered$External_gene_name))
+sum(n_occur[n_occur$Freq > 1,]$Freq)
+n_occur[n_occur$Freq > 1,]
+```
+
+There are 82 duplicate in the dataset, Now I want to see the duplicate
+```{r}
+mets_data_filtered[mets_data_filtered$External_gene_name %in%
+                     n_occur$Var1[n_occur$Freq > 1],]
+```
+
+Most of the gene names are Y_RNA, SNOR and U, so it is not necessary to filter them out, but in order to make them unique, I will take the average for the duplicates.
+
+```{r}
+#take the average with respect to HUGO gene symbols
+temp_data <- aggregate(mets_data_filtered[, 6:37],
+                       list(mets_data_filtered$External_gene_name),
+                       mean)
+
+#make sure there is no replicate
+length(unique(temp_data$Group.1))
+length(temp_data$Group.1)
+
+mets_data_filtered <- temp_data
+```
+
+## Normalization
+
+### TMM method for normalizing dataset
+I choose to use TMM method because it will normalize data according to samples.Also, this method does not require modification prior in order to do normalization.
+
+First, we need to create an edgeR container
+```{r}
+filtered_data_matrix <- as.matrix(mets_data_filtered[,2:33])
+rownames(filtered_data_matrix) <- mets_data_filtered$Group.1
+d = DGEList(counts=filtered_data_matrix, group=samples$group)
+```
+Now we can perform the normalization
+```{r}
+d = calcNormFactors(d)
+```
+
+get the normalized data
+```{r}
+norm_counts <- edgeR::cpm(d)
+```
+
+## pre vs post nomalized data
+First,we want to see the distribution of the dataset, boxplot can give the median and shows the outliers
+```{r, warning = FALSE}
+data2plot <- log2(cpm(mets_data_filtered[,2:33]))
+boxplot(data2plot, xlab = "Samples", ylab = "log2 CPM",
+        las = 2, cex = 0.5, cex.lab = 0.5,
+        cex.axis = 0.5, main = "MetS/obese RNASeq Samples")
+#draw the median on each box plot
+abline(h = median(apply(data2plot, 2, median)),
+col = "green", lwd = 0.6, lty = "dashed")
+
+norm_data2plot <- log2(norm_counts)
+boxplot(norm_data2plot, xlab = "Samples", ylab = "log2 CPM",
+        las = 2, cex = 0.5, cex.lab = 0.5,
+        cex.axis = 0.5, main = "MetS/obese RNASeq Samples normalized")
+#draw the median on each box plot
+abline(h = median(apply(norm_data2plot, 2, median)),
+col = "green", lwd = 0.6, lty = "dashed")
+```
+
+Now we are creating Density plot to see the difference
+
+```{r}
+counts_density <- apply(log2(filtered_data_matrix), 2, density)
+norm_counts_density <- apply(log2(norm_counts), 2, density)
+#add limits from the pre normalized plot
+xlim <- 0; ylim <- 0
+for (i in 1:length(counts_density)) {
+  xlim <- range(c(xlim, counts_density[[i]]$x)); 
+  ylim <- range(c(ylim, counts_density[[i]]$y))
+}
+#add limits from the normlaized plot
+for (i in 1:length(norm_counts_density)) {
+  xlim <- range(c(xlim, norm_counts_density[[i]]$x)); 
+  ylim <- range(c(ylim, norm_counts_density[[i]]$y))
+}	
+cols <- rainbow(length(counts_density))
+ltys <- rep(1, length(counts_density))
+
+#plot the first density plot
+plot(counts_density[[1]], xlim=xlim, ylim=ylim, type="n", 
+     ylab="Smoothing density of log2-CPM", main="MetS/obese RNASeq Samples", 
+     cex.lab = 0.85)
+#plot each line
+for (i in 1:length(counts_density)) 
+  lines(counts_density[[i]], col=cols[i], lty=ltys[i])
+
+cols <- rainbow(length(norm_counts_density))
+ltys <- rep(1, length(norm_counts_density))
+
+#plot the second density plot
+plot(norm_counts_density[[1]], xlim=xlim, ylim=ylim, type="n", 
+     ylab="Smoothing density of log2-CPM", main="MetS/obese RNASeq Samples normalized", 
+     cex.lab = 0.85)
+#plot each line
+for (i in 1:length(norm_counts_density))
+  lines(norm_counts_density[[i]], col=cols[i], lty=ltys[i])
 
 ```
+
+Since we need a dataframe as the final result, we need to make sure the dataframe is in correct formate.
+
+```{r, warning=FALSE}
+final_data <- temp_data[,2:33]
+rownames(final_data) <- temp_data[,1]
+final_data[1:5, 1:5]
+```
+
+## Interpret and document
+
+### What are the control and test conditions of the dataset?
+
+The control condition is the healthy and lean group, the test condition is disease lean, "healthy obese" group, when performing test for the effect of metabolic syndrome, the control is the "healthy obese" group and the test condition is the disease obese group.
+
+### Why is the dataset of interest to you?
+
+Because of the change of diet in modern days, obese become a huge problem. Metabolic syndrome is closely related to obesity. therefore, knowing the change in genome sequence can be important in finding the gene that is related to those diseases and can also provide a direction on the future treatment of obesity and MetS. That is why this dataset interest me.
+
+### Were there expression values that were not unique for specific genes? How did you handle these?
+
+No
+
+### Were there expression values that could not be mapped to current HUGO symbols?
+
+Yes, there are about `r sum(is.na(mets_data$External_gene_name))` of gene could not be mapped to current HUGO symbols, there are `r length(mets_data$External_gene_name)` genes in total. After remove low counts genes, there are `r sum(is.na(mets_data_filtered$External_gene_name))` of genes could not mapped to current HUGO symbol, there are `r length(mets_data_filtered$External_gene_name)` genes in total.
+ 
+### How many outliers were removed?
+
+`r removed[1]` is the number of outliers, it reperisent the data that have low counts.
+
+### How did you handle replicates?
+
+I calculated the average for duplicate. In my data, after clean up, there are 87 genes that are duplicated, 52 of them are Y_RNA.
+
+### What is the final coverage of your dataset?
+
+The final coverage is `r nrow(mets_data_filtered)`
+
+
+## References
+
+[1] Paczkowska-Abdulsalam, M., Niemira, M., Bielska, A., Szałkowska, A., Raczkowska, B. A., Junttila, S., . . . Krętowski, A. (2020). Evaluation of Transcriptomic regulations Behind metabolic syndrome in obese and lean subjects. International Journal of Molecular Sciences, 21(4), 1455. doi:10.3390/ijms21041455
+
+[2] Davis, S., Meltzer, P. (2007) "GEOquery: a bridge between the Gene Expression Omnibus (GEO) and Bioconductor." Bioinformatics 14: 1846-1847
+
+[3] Robinson MD, McCarthy DJ and Smyth GK (2010). edgeR: a Bioconductor package for differential expression analysis of digital gene expression data. Bioinformatics 26, 139-140
+
+[4] McCarthy DJ, Chen Y and Smyth GK (2012). Differential expression analysis of multifactor RNA-Seq experiments with respect to biological variation. Nucleic Acids Research 40, 4288-4297
+
+[5] Kirill Müller, Hadley Wickham, David A. James and Seth Falcon (2020). RSQLite: 'SQLite' Interface for R. R package version 2.2.1. https://CRAN.R-project.org/package=RSQLite
+
+[6] Yihui Xie (2020). knitr: A General-Purpose Package for Dynamic Report Generation in R. R package version 1.30.
+
+[7] Zhu Y, Davis S, Stephens R, Meltzer PS, Chen Y. GEOmetadb: powerful alternative search engine for the Gene Expression Omnibus. Bioinformatics. 2008 Dec 1;24(23):2798-800. doi: 10.1093/bioinformatics/btn520. Epub 2008 Oct 7. PubMed PMID: 18842599; PubMed Central PMCID: PMC2639278.
+
+[8] Hadley Wickham, Romain Fran?ois, Lionel Henry and Kirill Müller (2020). dplyr: A Grammar of Data Manipulation. R package version 1.0.2. https://CRAN.R-project.org/package=dplyr
