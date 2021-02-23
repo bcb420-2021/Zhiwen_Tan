@@ -166,6 +166,7 @@ There are 3% of gene names are missing which is a small portion, it is not neces
 #check if same gene id appear multiple times
 length(unique(mets_data_filtered$geneID))
 length(mets_data_filtered$geneID)
+filtered_total <- length(mets_data_filtered$geneID)
 ```
 
 Both of the result are 16224, this means there is no rows that map to more than one symbol.
@@ -288,6 +289,8 @@ for (i in 1:length(norm_counts_density))
 
 ```
 
+After normalizing, the density graph pattern doesn't change much, but the graph shift to the right side by about 5 unit.
+
 Since we need a dataframe as the final result, we need to make sure the dataframe is in correct format.
 
 ```{r, warning=FALSE}
@@ -312,7 +315,7 @@ No
 
 ### Were there expression values that could not be mapped to current HUGO symbols?
 
-Yes, there are about `r sum(is.na(mets_data$External_gene_name))` of gene could not be mapped to current HUGO symbols, there are `r length(mets_data$External_gene_name)` genes in total. After remove low counts genes, there are `r sum(is.na(mets_data_filtered$External_gene_name))` of genes could not mapped to current HUGO symbol, there are `r length(mets_data_filtered$External_gene_name)` genes in total.
+Yes, there are about `r sum(is.na(mets_data$External_gene_name))` of gene could not be mapped to current HUGO symbols, there are `r length(mets_data$External_gene_name)` genes in total. After remove low counts genes, there are `r total` of genes could not mapped to current HUGO symbol, there are `r filtered_total` genes in total.
  
 ### How many outliers were removed?
 
