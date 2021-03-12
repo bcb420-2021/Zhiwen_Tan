@@ -297,6 +297,7 @@ Since we need a dataframe as the final result, we need to make sure the datafram
 final_data <- temp_data[,2:33]
 rownames(final_data) <- temp_data[,1]
 final_data[1:5, 1:5]
+saveRDS(final_data, "normalized_data.rds")
 ```
 
 ## Interpret and document

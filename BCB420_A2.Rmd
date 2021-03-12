@@ -1,0 +1,280 @@
+---
+title: "Assignment2 - Differential Gene expression and Preliminary ORA"
+output: html_notebook
+---
+
+## Loading normalized data 
+
+load all data from A1
+
+```{r, message=FALSE, results='hide', warning=FALSE, echo=FALSE, include=FALSE}
+
+#install Biocmanager in order to install necessary package
+if (!requireNamespace("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+
+#install necessary package if not installed
+if (!requireNamespace("GEOmetadb", quietly = TRUE))
+  BiocManager::install("GEOmetadb")
+
+if (! requireNamespace("GEOquery", quietly = TRUE)) {
+  BiocManager::install("GEOquery")
+}
+
+if (! requireNamespace("edgeR", quietly = TRUE)) {
+  BiocManager::install("edgeR")
+}
+
+library(dplyr)
+library(GEOmetadb)
+library(GEOquery)
+library(edgeR)
+library(knitr)
+library(RSQLite)
+
+rmarkdown::render("BCB420_A1.Rmd")
+```
+
+get the normalized data, and convert it to numerical matrix
+
+```{r}
+normalized_data = readRDS("normalized_data.rds")
+#take a look at the data
+kable(normalized_data[1:5,1:5], type="html")
+heatmap_matrix <- as.matrix(normalized_data)
+```
+## Heatmap and Model
+
+install required package and library them, then show the heat map
+```{r, message=FALSE, results='hide', warning=FALSE, echo=FALSE, include=FALSE}
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+if (! requireNamespace("ComplexHeatmap", quietly = TRUE)) {
+  BiocManager::install("ComplexHeatmap")
+}
+
+if (! requireNamespace("circlize", quietly = TRUE)) {
+  install.packages("circlize")
+}
+
+library(ComplexHeatmap)
+library(circlize)
+
+heatmap_matrix <- t(scale(t(heatmap_matrix)))
+
+if(min(heatmap_matrix) == 0){
+  heatmap_col = colorRamp2(c( 0, max(heatmap_matrix)),
+                           c( "white", "red"))
+ } else {
+   heatmap_col = colorRamp2(c(min(heatmap_matrix), 0,
+                              max(heatmap_matrix)), 
+                            c("blue", "white", "red"))
+ }
+current_heatmap <- Heatmap(as.matrix(heatmap_matrix),
+                           show_row_dend = TRUE,show_column_dend =TRUE,
+                           col=heatmap_col,show_column_names = TRUE,
+                           show_row_names = FALSE,show_heatmap_legend = TRUE)
+```
+Show the heat map
+```{r}
+current_heatmap
+```
+
+Use limma to draw the MDSplot
+
+```{r}
+# install limma if not exist
+if (! requireNamespace("limma", quietly = TRUE)) {
+  BiocManager::install("limma")
+}
+
+# draw MDS plot using different colors
+pat_colors <- rainbow(10)
+pat_colors <- unlist(lapply(pat_colors,FUN=function(x){rep(x,2)}))
+limma::plotMDS(heatmap_matrix,
+               col = pat_colors)
+```
+
+Now we want to introduce groups
+
+```{r}
+#now define groups
+samples <- data.frame("type" = c("O", "L", "L", "O", "O", "L", "O", 
+                                  "L", "L", "O", "L", "L", "L", "L", 
+                                  "O", "O", "L", "O", "O", "O", "L", 
+                                  "O", "L", "O", "L", "O", "L", "O", 
+                                  "O", "L", "L", "O"),
+                      "disease" = c("H", "H", "D", "D", "D", "D", "H", 
+                                  "H", "H", "D", "H", "H", "D", "D", 
+                                  "D", "D", "D", "H", "H", "H", "H", 
+                                  "H", "D", "D", "H", "H", "H", "H", 
+                                  "D", "D", "D", "D"),
+                      "patients" = c("sample_1", "sample_4", "sample_5",
+                                     "sample_6", "sample_7", "sample_8",
+                                     "sample_9", "sample_10", "sample_11",
+                                     "sample_13", "sample_15", "sample_17",
+                                     "sample_18", "sample_19", "sample_21",
+                                     "sample_22", "sample_24", "sample_25",
+                                     "sample_28", "sample_29", "sample_32",
+                                     "sample_33", "sample_34", "sample_35",
+                                     "sample_36", "sample_39", "sample_42",
+                                     "sample_43", "sample_44", "sample_46",
+                                     "sample_47", "sample_48"))
+#Add corresponding rownames to each cell
+rownames(samples) <- colnames(normalized_data)[1:32]
+samples <- data.frame(samples)
+
+samples$name <- paste(samples$type, samples$disease, samples$patients)
+colnames(heatmap_matrix) <- samples$name
+
+#Show the first 5 rows
+samples[1:5,]
+```
+Create model matrix, and fit normalized data into the model
+```{r}
+model_design <- model.matrix(~ samples$disease)
+kable(model_design[1:5,], type="html")
+
+expressionMatrix <- as.matrix(normalized_data)
+minimalSet <- ExpressionSet(assayData=expressionMatrix)
+
+fit <- lmFit(minimalSet, model_design)
+```
+
+Apply empirical Bayes to compute differential expression, I have used the 
+
+```{r}
+fit2 <- eBayes(fit,trend=TRUE)
+
+output_hits <- topTable(fit2, coef=ncol(model_design), adjust.method = "BH",
+                        number = nrow(expressionMatrix))
+
+kable(output_hits,type="html")
+```
+
+check how many genes has p value less than 0.05, and how many genes pass the correction
+
+```{r}
+length(which(output_hits$P.Value < 0.05))
+length(which(output_hits$adj.P.Val < 0.05))
+```
+Question 1: 
+There are 1630 genes were significantly differentially expressed, the thresholds I used was 0.05 because 
+
+there is no gene passes the correction, so now we will try to improve the result. 
+
+```{r}
+# creates a design matrix
+model_design_pat <- model.matrix( ~ samples$type + samples$disease)
+kable(model_design_pat,type="html")
+
+# fit our data
+fit_pat <- lmFit(minimalSet, model_design_pat)
+#Apply empircal Bayes to compute differential expression
+fit2_pat <- eBayes(fit_pat,trend=TRUE)
+
+topfit_pat <- topTable(fit2_pat, coef=ncol(model_design_pat),
+                       adjust.method = "BH", number = nrow(expressionMatrix))
+output_hits_pat <- topfit_pat[order(topfit_pat$P.Value),]
+
+kable(output_hits_pat, type="html")
+```
+
+check how many genes has p value less than 0.05, and how many genes pass the correction
+
+```{r}
+length(which(output_hits_pat$P.Value < 0.05))
+length(which(output_hits_pat$adj.P.Val < 0.05))
+```
+
+The number of genes that has p value less than 0.05 increases, but the number of genes pass correction is still 0. now, we want to compare the two results by plot
+
+```{r}
+# define colors
+simple_model_pvalues <- data.frame(id = rownames(output_hits),
+                                   simple_pvalue=output_hits$P.Value)
+pat_model_pvalues <- data.frame(id = rownames(output_hits_pat),
+                                patient_pvalue = output_hits_pat$P.Value)
+two_models_pvalues <- merge(simple_model_pvalues,
+                            pat_model_pvalues,by.x=1,by.y=1)
+two_models_pvalues$colour <- "black"
+two_models_pvalues$colour[two_models_pvalues$simple_pvalue<0.05] <- "orange"
+two_models_pvalues$colour[two_models_pvalues$patient_pvalue<0.05] <- "blue"
+two_models_pvalues$colour[two_models_pvalues$simple_pvalue<0.05 &
+                          two_models_pvalues$patient_pvalue<0.05] <- "red"
+
+# Plotting
+plot(two_models_pvalues$simple_pvalue, two_models_pvalues$patient_pvalue,
+     col = two_models_pvalues$colour, xlab = "simple model p-values",
+     ylab ="Patient model p-values", main="Simple vs Patient Limma")
+```
+
+The plot looks like a straight line, this suggest that the differential expression for
+both simple model and patient model gives similar result. the body type of the patients
+does not effect the result much. 
+
+redraw the heat map
+
+```{r}
+top_hits <- rownames(output_hits_pat)[output_hits_pat$P.Value < 0.01]
+
+heatmap_matrix_tophits <- scale(heatmap_matrix[which(rownames(heatmap_matrix) %in% top_hits),])
+
+heatmap_matrix_tophits<- heatmap_matrix_tophits[,
+                          c(grep(colnames(heatmap_matrix_tophits),
+                            pattern = "H"),
+                            grep(colnames(heatmap_matrix_tophits),
+                            pattern = "D"))]
+
+if(min(heatmap_matrix_tophits) == 0){
+  heatmap_col = colorRamp2(c( 0, max(heatmap_matrix_tophits)),
+                           c( "white", "red"))
+ } else {
+   heatmap_col = colorRamp2(c(min(heatmap_matrix_tophits), 0,
+                              max(heatmap_matrix_tophits)),
+                            c("blue", "white", "red"))
+ }
+current_heatmap <- Heatmap(as.matrix(heatmap_matrix_tophits),
+                           cluster_rows = TRUE,
+                           cluster_columns = FALSE,
+                           show_row_dend = TRUE,
+                           show_column_dend = FALSE,
+                           col=heatmap_col,
+                           show_column_names = TRUE,
+                           show_row_names = FALSE,
+                           show_heatmap_legend = TRUE,
+ )
+```
+
+print out the heat map
+```{r}
+current_heatmap
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
