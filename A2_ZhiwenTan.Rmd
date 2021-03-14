@@ -9,9 +9,10 @@ output:
 
 # Assignment 1 summary
 
-install all packages if needed. and library them
+install all packages if needed, then library them. if file normalized_data.rds
+and filtered_data.rds does not exist, rerun A1.
 
-```{r, message=FALSE, results='hide', warning=FALSE, echo=FALSE, include=FALSE}
+```{r, message=FALSE, results='hide', warning=FALSE}
 
 #install Biocmanager in order to install necessary package
 if (!requireNamespace("BiocManager", quietly = TRUE))
@@ -51,12 +52,17 @@ library(RSQLite)
 library(limma)
 library(ComplexHeatmap)
 library(circlize)
+
+# load all data from A1
+if (! file.exists("./normalized_data.rds") || ! file.exists("filtered_data.rds")){
+  rmarkdown::render("BCB420_A1.Rmd")
+}
 ```
 
 First, we want to get the description for dataset
 .
 ```{r, results=FALSE, message=FALSE}
-#First, we want to get the description for dataset GSE145412. 
+# First, we want to get the description for dataset GSE145412. 
 gse <- getGEO("GSE145412",GSEMatrix=FALSE)
 kable(data.frame(head(Meta(gse))), format = "html")
 ```
@@ -64,7 +70,7 @@ kable(data.frame(head(Meta(gse))), format = "html")
 Then we want to show more information associated with the dataset.
 
 ```{r, results=FALSE, warning=FALSE}
-#Then, we want to get information about the dataset
+# Then, we want to get information about the dataset
 current_gpl <- names(GPLList(gse))[1]
 current_gpl_info <- Meta(getGEO(current_gpl))
 ```
@@ -74,14 +80,14 @@ The first assignment was focused on clean up data, grouping, and using TMM metho
 ```{r, warning=FALSE}
 normalized_data = readRDS("normalized_data.rds")
 
-#boxplot for normalized data
+# boxplot for normalized data
 data2plot_after <- log2(normalized_data)
 {boxplot(data2plot_after, xlab = "Samples", ylab = "log2 CPM", 
         las = 2, cex = 0.5, cex.lab = 0.5,
         cex.axis = 0.5, main = "MetS/obese RNASeq Samples normalized")
 abline(h = median(apply(data2plot_after, 2, median)), col = "green", lwd = 0.6, lty = "dashed")}
 
-#density plot for normalized data
+# density plot for normalized data
 norm_counts_density <- apply(log2(normalized_data), 2, density)
 xlim <- 0; ylim <- 0
 for (i in 1:length(norm_counts_density)) {
@@ -92,11 +98,11 @@ for (i in 1:length(norm_counts_density)) {
 cols <- rainbow(length(norm_counts_density))
 ltys <- rep(1, length(norm_counts_density))
 
-#plot the second density plot
+# plot the second density plot
 plot(norm_counts_density[[1]], xlim=xlim, ylim=ylim, type="n", 
      ylab="Smoothing density of log2-CPM", main="MetS/obese RNASeq Samples normalized", 
      cex.lab = 0.85)
-#plot each line
+# plot each line
 for (i in 1:length(norm_counts_density))
   lines(norm_counts_density[[i]], col=cols[i], lty=ltys[i])
 ```
@@ -107,18 +113,10 @@ In this assignment, those genes will be ranked according to differential express
 
 ## Loading normalized data 
 
-load all data from A1
-
-```{r}
-if (! file.exists("./normalized_data.rds") || ! file.exists("filtered_data.rds")){
-  rmarkdown::render("BCB420_A1.Rmd")
-}
-```
-
 get the normalized data, and convert it to numerical matrix
 
 ```{r}
-#take a look at the data
+# take a look at the data
 kable(normalized_data[1:5,1:5], type="html")
 heatmap_matrix <- as.matrix(normalized_data)
 ```
@@ -247,7 +245,7 @@ kable(model_design_pat,type="html")
 
 # fit our data
 fit_pat <- lmFit(minimalSet, model_design_pat)
-#Apply empircal Bayes to compute differential expression
+# Apply empircal Bayes to compute differential expression
 fit2_pat <- eBayes(fit_pat,trend=TRUE)
 
 topfit_pat <- topTable(fit2_pat, coef=ncol(model_design_pat),
@@ -451,19 +449,19 @@ prepare for create thresholded list
 filtered_data = readRDS("filtered_data.rds")
 rownames(filtered_data) <- filtered_data$Group.1
 
-#create a EdgeR object
+# create a EdgeR object
 d = DGEList(counts=as.matrix(filtered_data[2:33]), group=samples$disease)
-#create model
+# create model
 model_design_pat <- model.matrix( ~ samples$type + samples$disease)
-#estimate dispersion
+# estimate dispersion
 d <- estimateDisp(d, model_design_pat)
-#calculate normalization factors
+# calculate normalization factors
 d <- calcNormFactors(d)
-#fit model
+# fit model
 fit <- glmQLFit(d, model_design_pat)
-#calculate differential expression
+# calculate differential expression
 qlf.hea_vs_dis <- glmQLFTest(fit)
-#get all results
+# get all results
 qlf_output_hits <- topTags(qlf.hea_vs_dis,sort.by = "PValue",
                            n = nrow(filtered_data))
 length(which(qlf_output_hits$table$PValue < 0.05)) # 136
