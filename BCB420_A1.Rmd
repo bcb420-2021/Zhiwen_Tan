@@ -199,6 +199,7 @@ length(unique(temp_data$Group.1))
 length(temp_data$Group.1)
 
 mets_data_filtered <- temp_data
+saveRDS(mets_data_filtered, "filtered_data.rds")
 ```
 
 ## Normalization
