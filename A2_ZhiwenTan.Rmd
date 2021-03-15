@@ -287,11 +287,86 @@ two_models_pvalues$colour[two_models_pvalues$simple_pvalue<0.05 &
 plot(two_models_pvalues$simple_pvalue, two_models_pvalues$patient_pvalue,
      col = two_models_pvalues$colour, xlab = "simple model p-values",
      ylab ="Patient model p-values", main="Simple vs Patient Limma")
+# add legend
+legend(0, 1,legend=c("simple", "patient", "both", "other"),
+       col=c("orange", "blue", "red", "black"), lty=1:2, cex=0.9)
+
 ```
 
 The plot looks like a straight line, this suggest that the differential expression for
 both simple model and patient model gives similar result. the body type of the patients
 does not effect the result much. 
+
+The above result was come from limma, now we want to know the result using edgeR
+
+```{r}
+filtered_data = readRDS("filtered_data.rds")
+rownames(filtered_data) <- filtered_data$Group.1
+
+# create a EdgeR object
+d = DGEList(counts=as.matrix(filtered_data[2:33]), group=samples$disease)
+# create model
+model_design_pat <- model.matrix( ~ samples$type + samples$disease)
+# estimate dispersion
+d <- estimateDisp(d, model_design_pat)
+# calculate normalization factors
+d <- calcNormFactors(d)
+# fit model
+fit <- glmQLFit(d, model_design_pat)
+# calculate differential expression
+qlf.hea_vs_dis <- glmQLFTest(fit)
+# get all results
+qlf_output_hits <- topTags(qlf.hea_vs_dis,sort.by = "PValue",
+                           n = nrow(filtered_data))
+length(which(qlf_output_hits$table$PValue < 0.05)) # 136
+length(which(qlf_output_hits$table$FDR < 0.05)) # 0 
+
+kable(topTags(qlf.hea_vs_dis), type="html")
+
+# check how many genes are up regulated
+length(which(qlf_output_hits$table$PValue < 0.05 &
+               qlf_output_hits$table$logFC > 0)) # 5
+
+# check how many genes are down regulated
+length(which(qlf_output_hits$table$PValue < 0.05 &
+               qlf_output_hits$table$logFC < 0)) # 131
+
+```
+
+This means no gene has a FDR value less than 0.05, and only 5 genes are up regulated and 131 genes are down regulated
+
+Compare limma with Quasi liklihood
+```{r}
+qlf_pat_model_pvalues <- data.frame(
+          ensembl_id = rownames(qlf_output_hits$table),
+          qlf_patient_pvalue=qlf_output_hits$table$PValue)
+limma_pat_model_pvalues <-  data.frame(
+          ensembl_id = rownames(output_hits_pat),
+          limma_patient_pvalue = output_hits_pat$P.Value)
+two_models_pvalues <- merge(qlf_pat_model_pvalues,
+                            limma_pat_model_pvalues,
+                            by.x=1,by.y=1)
+two_models_pvalues$colour <- "black"
+two_models_pvalues$colour[two_models_pvalues$qlf_patient_pvalue<0.05] <- "orange"
+two_models_pvalues$colour[two_models_pvalues$limma_patient_pvalue<0.05] <- "blue"
+two_models_pvalues$colour[two_models_pvalues$qlf_patient_pvalue<0.05 & two_models_pvalues$limma_patient_pvalue<0.05] <- "red"
+```
+
+```{r}
+plot(two_models_pvalues$qlf_patient_pvalue,
+     two_models_pvalues$limma_patient_pvalue,
+     col = two_models_pvalues$colour,
+     xlab = "QLF patient model p-values",
+     ylab ="Limma Patient model p-values",
+     main="QLF vs Limma")
+
+legend(0, 0.9,legend=c("QLF", "Limma", "both QLF and Limma", "other"),
+       col=c("orange", "blue", "red", "black"), lty=1:2, cex=0.6)
+```
+
+
+
+
 
 ## MA plot
 
@@ -313,7 +388,8 @@ status <- rep(0, nrow(normalized_data))
 status[temp_hit$logFC > 0 & temp_hit_pat$P.Value < 0.05] <- 1
 status[temp_hit$logFC < 0 & temp_hit_pat$P.Value < 0.05] <- -1
 
-plotMD(log2(combined_group[, c(1, 2)]), status=status, values=c(1,0,-1), hl.col=c("blue", "grey", "red"), ylab="M - ratio log expression", main="Healthy vs Disease", )
+plotMD(log2(combined_group[, c(1, 2)]), status=status, values=c(1,-1), hl.col=c("blue", "red"), ylab="M - ratio log expression", main="Healthy vs Disease", )
+
 ```
 
 Question3:
@@ -443,44 +519,7 @@ Yes, my conditions cluster together because the clusters on the heatmap can be c
 
 ## Threshold list
 
-prepare for create thresholded list
-
-```{r}
-filtered_data = readRDS("filtered_data.rds")
-rownames(filtered_data) <- filtered_data$Group.1
-
-# create a EdgeR object
-d = DGEList(counts=as.matrix(filtered_data[2:33]), group=samples$disease)
-# create model
-model_design_pat <- model.matrix( ~ samples$type + samples$disease)
-# estimate dispersion
-d <- estimateDisp(d, model_design_pat)
-# calculate normalization factors
-d <- calcNormFactors(d)
-# fit model
-fit <- glmQLFit(d, model_design_pat)
-# calculate differential expression
-qlf.hea_vs_dis <- glmQLFTest(fit)
-# get all results
-qlf_output_hits <- topTags(qlf.hea_vs_dis,sort.by = "PValue",
-                           n = nrow(filtered_data))
-length(which(qlf_output_hits$table$PValue < 0.05)) # 136
-length(which(qlf_output_hits$table$FDR < 0.05)) # 0 
-
-kable(topTags(qlf.hea_vs_dis), type="html")
-
-# check how many genes are up regulated
-length(which(qlf_output_hits$table$PValue < 0.05 &
-               qlf_output_hits$table$logFC > 0)) # 5
-
-# check how many genes are down regulated
-length(which(qlf_output_hits$table$PValue < 0.05 &
-               qlf_output_hits$table$logFC < 0)) # 131
-
-```
-This means no gene has a FDR value less than 0.05, and only 5 genes are up regulated and 131 genes are down regulated
-
-Create thresholded lists
+Create thresholded lists using edgeR results
 
 ```{r}
 qlf_output_hits_withgn <- merge(filtered_data[,1],qlf_output_hits, by.x=1, by.y = 0)
