@@ -364,10 +364,6 @@ legend(0, 0.9,legend=c("QLF", "Limma", "both QLF and Limma", "other"),
        col=c("orange", "blue", "red", "black"), lty=1:2, cex=0.6)
 ```
 
-
-
-
-
 ## MA plot
 
 Show the amount of deferentially expressed genes using an MA Plot. I split the data into two groups, one is Healthy group and one is disease group. Since plotMD need to column of data, I calculated the average for each gene in both groups. Then I need to make sure using the right color for significant data, so I reordered the topfit_pat and output_hits. Then I need to define what gene to color, so I introduced a status for coloring. After all the process, I can make the MA plot for my data.
