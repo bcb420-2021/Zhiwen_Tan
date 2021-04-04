@@ -6,15 +6,87 @@ output:
     toc: yes
     toc_depth: 2
     df_print: paged
+params:
+  analysis_name: MetS VS Normal
+  working_dir: ./data/
+  rnk_file: mets_ranked_genelist.rnk
+  classes_file: Supplementary_Table9_TCGA_OV_RNAseq_classes.cls
+  expression_file: Supplementary_Table6_TCGA_OV_RNAseq_expression.txt 
+  run_gsea: true
+  #change this when hand in
+  gsea_jar: ./GSEA_4.1.0/gsea-cli.bat
+  gsea_directory: ''
+  fdr_thresh: 0.01
+  pval_thresh: 1
+  java_version: 11
+  #change this to true when hand in
+  is_docker: false
 ---
 
 # Summary
 
-First thing we want to do is to load data from A1 and A2
+First thing we want to do is to load data from A1 and A2, and install all required
+packages for this assignment.
 
 ```{r, message=FALSE, results='hide', warning=FALSE, echo=FALSE}
-# load all data from A1 and A2
-if (! file.exists("./normalized_data.rds") || ! file.exists("filtered_data.rds")){
+#install Biocmanager in order to install necessary package
+if (!requireNamespace("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+
+#install necessary package if not installed
+if (!requireNamespace("GEOmetadb", quietly = TRUE))
+  BiocManager::install("GEOmetadb")
+
+if (! requireNamespace("GEOquery", quietly = TRUE)) {
+  BiocManager::install("GEOquery")
+}
+
+if (! requireNamespace("edgeR", quietly = TRUE)) {
+  BiocManager::install("edgeR")
+}
+
+# install limma if not exist
+if (! requireNamespace("limma", quietly = TRUE)) {
+  BiocManager::install("limma")
+}
+
+if (! requireNamespace("ComplexHeatmap", quietly = TRUE)) {
+  BiocManager::install("ComplexHeatmap")
+}
+
+if (! requireNamespace("circlize", quietly = TRUE)) {
+  install.packages("circlize")
+}
+
+# packages required for GSEA analysis
+if (! requireNamespace("RCurl", quietly = TRUE)) {
+  BiocManager::install("RCurl")
+}
+
+if (! requireNamespace("RCy3", quietly = TRUE)) {
+  BiocManager::install("RCy3")
+}
+
+if (! requireNamespace("ggplot2", quietly = TRUE)) {
+  install.packages("ggplot2")
+}
+
+library(dplyr)
+library(GEOmetadb)
+library(GEOquery)
+library(edgeR)
+library(knitr)
+library(RSQLite)
+library(limma)
+library(ComplexHeatmap)
+library(circlize)
+library(ggplot2)
+library(RCy3)
+library(RCurl)
+
+# load all data from A1 and A2 if files are missing
+if (! file.exists("./normalized_data.rds") || ! file.exists("filtered_data.rds")
+    || ! file.exists("./data/mets_ranked_genelist.txt")){
   rmarkdown::render("A2_ZhiwenTan.Rmd")
 }
 ```
@@ -43,18 +115,17 @@ normalized data are in the format below
 
 ```{r}
 A1_normalized = readRDS("normalized_data.rds")
-kable(normalized_data[1:5,1:5], type="html")
+kable(A1_normalized[1:5,1:5], type="html")
 ```
 
 ## A2
 
-The normalized data from Assignment #1 was ranked according to differential expression in Assignment 2. Then, we split upregulated genes and downregulated genes and store then into two files. After that, thresholded over-representation analysis (g:Profiler) was performed on this data.and the top results are being analyzed.
+The normalized data from Assignment #1 was ranked according to differential expression in Assignment 2. Then, we split up-regulated genes and down-regulated genes and store then into two files. After that, threshold over-representation analysis (g:Profiler) was performed on this data.and the top results are being analyzed.
 
 The results are shown as below
 
-```{r}
-kable(qlf_output_hits_withgn[1:5,1:7], type="html")
-```
+![Figure 2: differential expression genes overview](image/reg_all.png)
+
 
 After that, we saved the rank list into a text file under data folder. Now we need to convert this text file to a rnk file in order to run GSEA.
 
@@ -65,13 +136,71 @@ After that, we saved the rank list into a text file under data folder. Now we ne
 temp_data <- read.delim("data/mets_ranked_genelist.txt", header = FALSE)
 
 write.table(x=temp_data, file=file.path("data","mets_ranked_genelist.rnk"),sep = "\t", row.names = FALSE,col.names = FALSE,quote = FALSE)
+
+kable(temp_data[1:5,1:2], type="html")
 ```
 
 Now we have a rnk file, next step is to run GSEA program
 
-## 
+## GSEA setup
+```{r initialize parameters}
+#path to GSEA jar 
+gsea_jar <- params$gsea_jar
+java_version <- params$java_version
 
+#Gsea takes a long time to run.  If you have already run GSEA manually or previously there is no need to re-run GSEA.  Make sure the 
+# gsea results are in the current directory and the notebook will be able to find them and use them.
+run_gsea = params$run_gsea
 
+#navigate to the directory where you put the downloaded protocol files.
+working_dir <- params$working_dir
+
+# leave blank if you want the notebook to discover the gsea directory for itself
+#gsea_directory = paste(working_dir,"Mesen_vs_Immuno.GseaPreranked.1497635459262",sep="/") 
+gsea_directory = params$gsea_directory
+
+analysis_name <- params$analysis_name
+rnk_file <- params$rnk_file
+expression_file <- params$expression_file
+classes_file <- params$classes_file
+
+is_docker <- params$is_docker
+```
+
+## Download the latest pathway definition file
+```{r download baderlab gmt file, message=FALSE, warning=FALSE}
+gmt_url = "http://download.baderlab.org/EM_Genesets/current_release/Human/symbol/"
+
+#list all the files on the server
+filenames = getURL(gmt_url)
+tc = textConnection(filenames)
+contents = readLines(tc)
+close(tc)
+
+#get the gmt that has all the pathways and does not include terms inferred from electronic annotations(IEA)
+#start with gmt file that has pathways only
+rx = gregexpr("(?<=<a href=\")(.*.GOBP_AllPathways_no_GO_iea.*.)(.gmt)(?=\">)",
+  contents, perl = TRUE)
+gmt_file = unlist(regmatches(contents, rx))
+
+dest_gmt_file <- file.path(working_dir,paste("Supplementary_Table3_",gmt_file,sep="") )
+
+download.file(
+    paste(gmt_url,gmt_file,sep=""),
+    destfile=dest_gmt_file
+)
+```
+
+## Run GSEA
+```{r run GSEA}
+if(run_gsea && java_version == "11"){
+  command <- paste("",gsea_jar,  "GSEAPreRanked -gmx", dest_gmt_file, "-rnk" ,file.path(working_dir,rnk_file), "-collapse false -nperm 1000 -scoring_scheme weighted -rpt_label ",analysis_name,"  -plot_top_x 20 -rnd_seed 12345  -set_max 200 -set_min 15 -zip_report false -out" ,working_dir, " > gsea_output.txt",sep=" ")
+  system(command)
+} else if (run_gsea) {
+  command <- paste("java  -Xmx1G -cp",gsea_jar,  "xtools.gsea.GseaPreranked -gmx", dest_gmt_file, "-rnk" ,file.path(working_dir,rnk_file), "-collapse false -nperm 1000 -permute gene_set -scoring_scheme weighted -rpt_label ",analysis_name,"  -num 100 -plot_top_x 20 -rnd_seed 12345  -set_max 200 -set_min 15 -zip_report false -out" ,working_dir, "-gui false > gsea_output.txt",sep=" ")
+  system(command)
+}
+```
 
 
 
