@@ -1,0 +1,111 @@
+---
+title: "Assignment3 - Data set Pathway and Network Analysis"
+author: "Zhiwen Tan, 1003905287"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 2
+    df_print: paged
+---
+
+# Summary
+
+First thing we want to do is to load data from A1 and A2
+
+```{r, message=FALSE, results='hide', warning=FALSE, echo=FALSE}
+# load all data from A1 and A2
+if (! file.exists("./normalized_data.rds") || ! file.exists("filtered_data.rds")){
+  rmarkdown::render("A2_ZhiwenTan.Rmd")
+}
+```
+
+## A1
+
+Assignment 1 was focused on cleaning data by removing outliers, mapping gene id to HUGO gene symbols, and normalizing data with TMM method. Gene set information are shown as below
+
+description for dataset
+.
+```{r, results=FALSE, message=FALSE}
+# First, we want to get the description for dataset GSE145412. 
+gse <- getGEO("GSE145412",GSEMatrix=FALSE)
+kable(data.frame(head(Meta(gse))), format = "html")
+```
+
+information associated with the dataset.
+
+```{r, results=FALSE, warning=FALSE}
+# Then, we want to get information about the dataset
+current_gpl <- names(GPLList(gse))[1]
+current_gpl_info <- Meta(getGEO(current_gpl))
+```
+
+normalized data are in the format below
+
+```{r}
+A1_normalized = readRDS("normalized_data.rds")
+kable(normalized_data[1:5,1:5], type="html")
+```
+
+## A2
+
+The normalized data from Assignment #1 was ranked according to differential expression in Assignment 2. Then, we split upregulated genes and downregulated genes and store then into two files. After that, thresholded over-representation analysis (g:Profiler) was performed on this data.and the top results are being analyzed.
+
+The results are shown as below
+
+```{r}
+kable(qlf_output_hits_withgn[1:5,1:7], type="html")
+```
+
+After that, we saved the rank list into a text file under data folder. Now we need to convert this text file to a rnk file in order to run GSEA.
+
+# Non-thresholded Gene set Enrichment Analysis
+
+## convert txt file to rnk file
+```{r}
+temp_data <- read.delim("data/mets_ranked_genelist.txt", header = FALSE)
+
+write.table(x=temp_data, file=file.path("data","mets_ranked_genelist.rnk"),sep = "\t", row.names = FALSE,col.names = FALSE,quote = FALSE)
+```
+
+Now we have a rnk file, next step is to run GSEA program
+
+## 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
