@@ -14,13 +14,13 @@ params:
   expression_file: Supplementary_Table6_TCGA_OV_RNAseq_expression.txt 
   run_gsea: true
   #change this when hand in
-  gsea_jar: ./GSEA_4.1.0/gsea-cli.bat
+  gsea_jar: /home/rstudio/GSEA_4.1.0/gsea-cli.sh
   gsea_directory: ''
   fdr_thresh: 0.01
   pval_thresh: 1
   java_version: 11
   #change this to true when hand in
-  is_docker: false
+  is_docker: true
 ---
 
 # Summary
