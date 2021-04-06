@@ -105,21 +105,29 @@ Assignment 1 was focused on cleaning data by removing outliers, mapping gene id 
 
 description for dataset
 .
-```{r, results=FALSE, message=FALSE}
+```{r, results='hide', message=FALSE}
 # First, we want to get the description for dataset GSE145412. 
 gse <- getGEO("GSE145412",GSEMatrix=FALSE)
+```
+
+```{r}
 kable(data.frame(head(Meta(gse))), format = "html")
 ```
 
 information associated with the dataset.
 
-```{r, results=FALSE, warning=FALSE}
+```{r, results='hide', warning=FALSE}
 # Then, we want to get information about the dataset
 current_gpl <- names(GPLList(gse))[1]
 current_gpl_info <- Meta(getGEO(current_gpl))
-current_gpl 
-current_gpl_info
 ```
+
+**Platform Title:** `r current_gpl_info$title`\
+**Original submission date:** `r current_gpl_info$submission_date`\
+**Last update date:** `r current_gpl_info$last_update_date`\
+**Organism:** `r current_gpl_info$organism`\
+**No. of GEO datasets that use this technology:** `r length(current_gpl_info$series_id)`\
+**No. of GEO samples that use this technology:** `r length(current_gpl_info$sample_id)`
 
 normalized data are in the format below
 
@@ -299,8 +307,9 @@ After create summarized network, the major themes present is antigen proteasome 
 
 A summarized network was shown below, cluster layout was set to CoSE
 
-![Figure 6: Summarized network](image/summarized_network.png)
-## Interpretation
+![Figure 6: Summarized network](image/summarized_network_legneds.png)
+
+# Interpretation
 
 1. The enrichment result not really close to the original paper. It is more close to the g:profiler result from thresholded methods. The difference are in the up-regulated group, but since this group only has a small number of data(only one red dot on the above graph), so the result change can not tell us too much.
 
@@ -349,7 +358,7 @@ genes_all_gs <- unique(unlist(genesets$genesets))
 ```
 
 ## Venn Diagram of Dark Matter
-```{r}
+```{r, warning=FALSE, message=FALSE, results='hide'}
 A <- genes_all_gs
 B <- genes_enr_gs
 C <- rownames(expression)
@@ -366,6 +375,9 @@ VennDiagram::draw.triple.venn( area1=length(A), area2=length(B), area3 = length(
 )
 dev.off()
 ```
+![Figure 7: Venn Diagram](image/dark_matter_overlaps.png)
+
+
 ## Get gene set
 ```{r}
 # significant genes that are not annotated to any pathways in entire set of pathways used for the analysis
@@ -387,7 +399,7 @@ we will use the same ComplexHeatmap and circlize R packages as in A2. ^9,10,11^\
 
 First, I will show the heatmap of any significant genes that are not annotated to any of the pathways returned in the enrichment analysis.
 
-```{r, warning=FALSE}
+```{r, warning=FALSE, results='hide', message=FALSE}
 #get genes
 enrich_heatmap_matrix <- expression[rownames(expression) %in% ranked_gene_no_annotation_enr$NAME,]
 
@@ -412,12 +424,15 @@ enrich_darkmatter_heatmap <- Heatmap(as.matrix(enrich_heatmap_matrix),
                            show_row_names = FALSE,
                            show_heatmap_legend = TRUE,
  )
+```
+
+```{r}
 enrich_darkmatter_heatmap
 ```
 
 Then, I will show the heatmap of any significant genes that are not annotated to any pathways in entire set of pathways used for the analysis
 
-```{r, warning=FALSE}
+```{r, warning=FALSE, results='hide', message=FALSE}
 #get genes
 all_heatmap_matrix <- expression[rownames(expression) %in% ranked_gene_no_annotation$NAME,]
 
@@ -442,6 +457,9 @@ all_darkmatter_heatmap <- Heatmap(as.matrix(all_heatmap_matrix),
                            show_row_names = FALSE,
                            show_heatmap_legend = TRUE,
  )
+```
+
+```{r}
 all_darkmatter_heatmap
 ```
 
